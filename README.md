@@ -16,4 +16,7 @@ A frp Plugin for Authentication
 - Of course,you need add Frp releate configuration in frps.ini
 ## Run Mobile Phone
 - You generate .Apk for Android
-- 
+     * Add Server![](https://github.com/ChienWong/FrpPlugin/blob/main/ForREADME/1.jpg)
+     * Select Server ![](https://github.com/ChienWong/FrpPlugin/blob/main/ForREADME/3.jpg)
+     * Connect Server ![](https://github.com/ChienWong/FrpPlugin/blob/main/ForREADME/2.jpg)
+     * Wait frp request ![](https://github.com/ChienWong/FrpPlugin/blob/main/ForREADME/4.jpg)
