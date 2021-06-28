@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FrpMobile.Views.ItemDetailPage"
+             Title="{Binding Title}">
+
+    <StackLayout Spacing="20" Padding="15">
+        <Label Text="Address:" FontSize="Medium" />
+        <Entry Text="{Binding Address}" FontSize="Small"/>
+        <Label Text="Password:" FontSize="Medium" />
+        <Entry Text="{Binding Token}" FontSize="Small" IsPassword="True"/>
+        <Label Text="Description:" FontSize="Medium" />
+        <Editor Text="{Binding Description}" FontSize="Small"/>
+        <StackLayout Orientation="Horizontal">
+            <Button Text="Delete" Command="{Binding DeleteCommand}" HorizontalOptions="FillAndExpand"></Button>
+            <Button Text="Save" Command="{Binding SaveCommand}" HorizontalOptions="FillAndExpand"></Button>
+        </StackLayout>
+        <StackLayout Orientation="Vertical">
+            <Button Text="Select" Command="{Binding SelectCommand}" HorizontalOptions="FillAndExpand"></Button>
+        </StackLayout>
+    </StackLayout>
+    
+</ContentPage>
