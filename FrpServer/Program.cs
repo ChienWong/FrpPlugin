@@ -10,9 +10,9 @@ namespace FrpPluginServer
         public static X509Certificate serverCertificate{get;set;}
         public static void Main(string[] args)
         {
-            string path= "chien.org.cn.pfx";
+            string path= System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase + "DomainName.pfx";
             XmlDocument configXml= new XmlDocument();
-            configXml.Load("App.config");
+            configXml.Load(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase + "App.config");
             XmlNode configNode = configXml.SelectSingleNode("configuration").SelectSingleNode("ServerConfig");
             char[] chars= configNode.SelectSingleNode("CertificatePassword").InnerText.ToArray();
             string ClientPassword = configNode.SelectSingleNode("ClientPassword").InnerText;
