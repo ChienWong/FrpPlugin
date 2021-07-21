@@ -10,7 +10,6 @@ namespace FrpPluginServer
         public static X509Certificate serverCertificate{get;set;}
         public static void Main(string[] args)
         {
-            string path= System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase + "DomainName.pfx";
             XmlDocument configXml= new XmlDocument();
             configXml.Load(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase + "App.config");
             XmlNode configNode = configXml.SelectSingleNode("configuration").SelectSingleNode("ServerConfig");
@@ -19,6 +18,7 @@ namespace FrpPluginServer
             string hostIP=configNode.SelectSingleNode("HostAddress").InnerText;
             int requestPort = int.Parse(configNode.SelectSingleNode("RequestPort").InnerText);
             int ClientPort = int.Parse(configNode.SelectSingleNode("ClientPort").InnerText);
+            string path= System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase + configNode.SelectSingleNode("CertificateFile").InnerText;
             SecureString password = new SecureString();
             foreach(char c in chars)
                 password.AppendChar(c);

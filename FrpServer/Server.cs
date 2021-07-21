@@ -14,6 +14,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using System.IO;
 using log4net;
+using System.ComponentModel.Design;
 
 [assembly: log4net.Config.XmlConfigurator(ConfigFile = "App.config", Watch = true)]
 namespace FrpPulginServer
@@ -39,10 +40,11 @@ namespace FrpPulginServer
         private Regex ResultPattern = new Regex(@"Result:(\w+)\r\nID:(\d+).",RegexOptions.Compiled);
         private Regex RequestPattern = new Regex(@"POST /handler?[\s\S]*op=(\w+)&[\s\S]*",RegexOptions.Compiled);
         private Queue<QueryResult> QueryResultQueue = new Queue<QueryResult>();
+        private object IDRequestLock = new object();
         //Request ID to Request Socket 
         private Dictionary<int,Socket> IDRequest = new Dictionary<int, Socket>();
         //Synchronize  to send result
-        private Semaphore Event = new Semaphore(0,3);
+        private Semaphore Event = new Semaphore(0,10);
         private ILog Logger;
         struct Client
         {
@@ -73,7 +75,7 @@ namespace FrpPulginServer
         {
             ServerIP = IP;
             ClientListener = new TcpListener(IPAddress.Parse(ServerIP),ClientPort);
-            RequestListener = new  TcpListener(IPAddress.Parse(ServerIP),RequestPort);
+            RequestListener = new  TcpListener(IPAddress.Parse("127.0.0.1"),RequestPort);
             Task BindClientListening = new Task(StartListening);
             BindClientListening.Start();
             Task ProcessClient = new Task(ProcessMessageFromClients);
@@ -84,32 +86,61 @@ namespace FrpPulginServer
             Delivery.Start();
             while(true)
             {
-                foreach(var i in IDRequest.Keys.Reverse())
+                int count = 0;
+                IEnumerable<int> ids;
+                lock(IDRequestLock)
                 {
-                    if(IDRequest[i].Connected==false)
+                    ids= IDRequest.Keys.ToList();
+                }
+                while(count<5)
+                {
+                    IEnumerable<Client> tempCopy;
+                    lock(ClientsConnsLock)
                     {
-                        Logger.Debug("QueryMissing:\tID:"+i);
+                        tempCopy = ClientsConns.Reverse<Client>();
+                    }
+                    Thread.Sleep(2000);
+                    foreach(var i in tempCopy)
+                    {
+                        if(!i.Active)
+                        {
+                            Logger.Info("Client disconnect:\tIP:"+((IPEndPoint)i.tcpclient.Client.RemoteEndPoint).Address.ToString());
+                            lock(ClientsConnsLock)
+                            {
+                                ClientsConns.Remove(i);
+                            }
+                            continue;
+                        }
+                        SendAllClient("Hello.<EOF>");
+                    }
+                    count++;
+                }
+                foreach(int i in ids)
+                {
+                    if(!IDRequest.ContainsKey(i)) continue;
+                    if(!IDRequest[i].Connected)
+                    {
+                        lock(IDRequestLock)
+                        {
+                            IDRequest.Remove(i);
+                        }
+                    }
+                    string message = "HTTP/1.1 200 OK \r\n\r\n{\"reject\": true,\"reject_reason\": \"Malicious IP\"}";
+                    byte[] buff = System.Text.Encoding.UTF8.GetBytes(message);
+                    try 
+                    {
+                        IDRequest[i].Send(buff);
+                        IDRequest[i].Shutdown(SocketShutdown.Both);
+                    }
+                    finally
+                    {
+                        IDRequest[i].Close();
+                    }
+                    Logger.Debug("QueryMissing:\tID:"+i);
+                    lock(IDRequestLock)
+                    {
                         IDRequest.Remove(i);
                     }
-                }
-                IEnumerable<Client> tempCopy;
-                lock(ClientsConnsLock)
-                {
-                    tempCopy = ClientsConns.Reverse<Client>();
-                }
-                Thread.Sleep(5000);
-                foreach(var i in tempCopy)
-                {
-                    if(!i.Active)
-                    {
-                        Logger.Info("Client disconnect:\tIP:"+((IPEndPoint)i.tcpclient.Client.RemoteEndPoint).Address.ToString());
-                        lock(ClientsConnsLock)
-                        {
-                            ClientsConns.Remove(i);
-                        }
-                        continue;
-                    }
-                    SendAllClient("Hello.<EOF>");
                 }
             }
         }
@@ -129,17 +160,23 @@ namespace FrpPulginServer
                 try
                 {
                     IDRequest[result.ID].Send(buff);
+                    IDRequest[result.ID].Shutdown(SocketShutdown.Both);
                 }catch(Exception e){
                     Logger.Debug("Send result failed,\tID:"+result.ID+"\tERROR:"+e.Message);
                 }
                 finally
                 {
-                    IDRequest.Remove(result.ID);
+                    IDRequest[result.ID].Close();
+                    lock(IDRequestLock)
+                    {
+                        IDRequest.Remove(result.ID);
+                    }
                 }
             }
         }
         private void ProcessMessageFromServer()
         {
+            try{
             int RequestID = 100;
             while(true)
             {
@@ -166,7 +203,7 @@ namespace FrpPulginServer
                     conns.Add(i.Client);
                 }
                 if(conns.Count == 0) continue;
-                //Avoid blocking when new socket come,need improved by special socket
+                //Avoid blocking when new socket coming,need improved by special socket
                 Socket.Select(conns,null,null,100);
                 if(conns.Count==0) continue;
                 byte[] buffer= new byte[1024];
@@ -178,20 +215,33 @@ namespace FrpPulginServer
                         rc = i.Receive(buffer);
                     }catch
                     {
-                        Logger.Debug("Request read failed\tIP:"+((IPEndPoint)i.RemoteEndPoint).Address.ToString());
-                        if(i.Connected==false)
-                        {
-                            i.Close();
-                        } 
+                        Logger.Debug("Request read failed");
                         continue;
                     }
                     string str = System.Text.Encoding.UTF8.GetString(buffer, 0, rc);
                     string[] requests=str.Split("\r\n");
-                    if(requests.Length==0) continue;
+                    if(requests.Length==0) {
+                        Logger.Debug("Damaged request : "+str);
+                        continue;
+                    }
                     //string op=RequestPattern.Matches(requests[0])[0].Groups[1].Value;
-                    JObject json=JObject.Parse(requests[requests.Length-1]);
-                    string remoteIP=json["content"]["remote_addr"].ToString().Split(':')[0];
-                    string message = "ID:"+RequestID+"\r\nIP:"+remoteIP+"\r\nProxy:"+json["content"]["proxy_name"].ToString()+"<EOF>";
+                    JObject json;
+                    try
+                    {
+                        json=JObject.Parse(requests[requests.Length-1]);
+                    }catch{
+                        Logger.Debug("Damaged request : "+str);
+                        continue;
+                    }
+                    string remoteIP;
+                    string message;
+                    try{
+                        remoteIP=json["content"]["remote_addr"].ToString().Split(':')[0];
+                        message = "ID:"+RequestID+"\r\nIP:"+remoteIP+"\r\nProxy:"+json["content"]["proxy_name"].ToString()+"<EOF>";
+                    }catch{
+                        Logger.Debug("Damaged request : "+str);
+                        continue;
+                    }
                     Logger.Info("Request:"+message.Replace("\r\n","\t"));
                     if(ClientsConns.Count==0)
                     {
@@ -200,13 +250,28 @@ namespace FrpPulginServer
                         {
                             Logger.Info("Result:reject,No clients\tID:"+RequestID);
                             i.Send(System.Text.Encoding.UTF8.GetBytes(message));
+                            try
+                            {
+                                i.Shutdown(SocketShutdown.Both);
+                            }finally{
+                                i.Close();
+                            }
                         }catch(Exception e)
                         {
                             Logger.Debug("Send Result failed\tID:"+RequestID+"\t"+e.Message);
                         }
                         continue;
                     }
-                    IDRequest.Add(RequestID,i);
+                    lock(IDRequestLock)
+                    {
+                        IDRequest.Add(RequestID,i);
+                    }
+                    foreach(var c in RequestConns){
+                        if(c.Client==i){
+                            RequestConns.Remove(c);
+                            break;
+                        }
+                    }
                     SendAllClient(message);
                     RequestID=(RequestID+1)%1000;
                     if(RequestID<100)
@@ -215,6 +280,8 @@ namespace FrpPulginServer
                         RequestID=100;
                     }
                 }
+            }}catch(Exception e){
+                Logger.Debug("ProcessMessageFromServer Error: "+e.Message+"\t"+e.StackTrace);
             }
         }
         private void SendAllClient(string message)
