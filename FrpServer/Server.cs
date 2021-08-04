@@ -46,6 +46,10 @@ namespace FrpPulginServer
         //Synchronize  to send result
         private Semaphore Event = new Semaphore(0,10);
         private ILog Logger;
+        private Socket IndicationRequest;
+        private Socket TiggerRequest;
+        private Socket IndicationClient;
+        private Socket TiggerClient;
         struct Client
         {
             public TcpClient tcpclient;
@@ -76,6 +80,15 @@ namespace FrpPulginServer
             ServerIP = IP;
             ClientListener = new TcpListener(IPAddress.Parse(ServerIP),ClientPort);
             RequestListener = new  TcpListener(IPAddress.Parse("127.0.0.1"),RequestPort);
+            Socket IndicatorServer = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            IndicatorServer.Bind(new IPEndPoint(IPAddress.Parse("127.0.0.1"),61221));
+            IndicatorServer.Listen();
+            TiggerRequest = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
+            if(!TiggerRequest.ConnectAsync(IPAddress.Parse("127.0.0.1"),61221).Wait(1000)) throw new Exception("Can't Connect to IndicationRequest");
+            IndicationRequest = IndicatorServer.Accept();
+            TiggerClient = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
+            if(!TiggerClient.ConnectAsync(IPAddress.Parse("127.0.0.1"),61221).Wait(1000)) throw new Exception("Can't Connect to IndicationClient");
+            IndicationClient = IndicatorServer.Accept();
             Task BindClientListening = new Task(StartListening);
             BindClientListening.Start();
             Task ProcessClient = new Task(ProcessMessageFromClients);
@@ -181,7 +194,6 @@ namespace FrpPulginServer
             while(true)
             {
                 List<Socket> conns = new List<Socket>();
-                if(RequestConns.Count==0) continue;
                 IEnumerable<TcpClient> tempCopy;
                 lock(RequestConnsLock)
                 {
@@ -202,13 +214,22 @@ namespace FrpPulginServer
                     }
                     conns.Add(i.Client);
                 }
-                if(conns.Count == 0) continue;
-                //Avoid blocking when new socket coming,need improved by special socket
-                Socket.Select(conns,null,null,100);
-                if(conns.Count==0) continue;
+                //Avoid blocking when new socket coming, special socket
+                conns.Add(IndicationRequest);
+                Socket.Select(conns,null,null,-1);
+                if(conns.Count==1 && conns[0]==IndicationRequest)
+                {
+                    IndicationRequest.Receive(new byte[1024]);
+                    continue;
+                }
                 byte[] buffer= new byte[1024];
                 foreach(var i in conns)
                 {
+                    if(i==IndicationRequest)
+                    {
+                        IndicationRequest.Receive(new byte[1024]);
+                        continue;
+                    }
                     int rc = 0;
                     try
                     {
@@ -336,11 +357,20 @@ namespace FrpPulginServer
                     conns.Add(i.tcpclient.Client);
                     map.Add(i.tcpclient.Client,i);
                 }
-                if(conns.Count == 0) continue;
-                Socket.Select(conns,null,null,100);
-                if(conns.Count == 0) continue;
+                //Avoid blocking when new socket coming, special socket
+                conns.Add(IndicationClient);
+                Socket.Select(conns,null,null,-1);
+                if(conns.Count == 1 && conns[0]==IndicationClient)
+                {
+                    IndicationClient.Receive(new byte[1024]);
+                    continue;
+                }
                 foreach(Socket i in conns)
                 {
+                    if(i==IndicationClient){
+                        IndicationClient.Receive(new byte[1024]);
+                        continue;
+                    }
                     SslStream ssl = map[i].sslStream;
                     try
                     {
@@ -395,6 +425,7 @@ namespace FrpPulginServer
                         {
                             RequestConns.Add(requestClient);
                         }
+                        TiggerRequest.Send(System.Text.Encoding.UTF8.GetBytes("OK"));
                     }
                 }
             }
@@ -426,6 +457,7 @@ namespace FrpPulginServer
                     {
                         ClientsConns.Add(new Client(){tcpclient=client,sslStream=ssl,writingLock=new Object(),Active=true});
                     }
+                    TiggerClient.Send(System.Text.Encoding.UTF8.GetBytes("OK"));
                 }else
                 {
                     Logger.Debug("Password error:"+message);
