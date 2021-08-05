@@ -89,6 +89,7 @@ namespace FrpPulginServer
             TiggerClient = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
             if(!TiggerClient.ConnectAsync(IPAddress.Parse("127.0.0.1"),61221).Wait(1000)) throw new Exception("Can't Connect to IndicationClient");
             IndicationClient = IndicatorServer.Accept();
+            IndicatorServer.Close();
             Task BindClientListening = new Task(StartListening);
             BindClientListening.Start();
             Task ProcessClient = new Task(ProcessMessageFromClients);
@@ -118,14 +119,17 @@ namespace FrpPulginServer
                         if(!i.Active)
                         {
                             Logger.Info("Client disconnect:\tIP:"+((IPEndPoint)i.tcpclient.Client.RemoteEndPoint).Address.ToString());
+                            i.sslStream.Close();
+                            i.tcpclient.Close();
+                            i.sslStream.Dispose();
+                            i.tcpclient.Dispose();
                             lock(ClientsConnsLock)
                             {
                                 ClientsConns.Remove(i);
                             }
-                            continue;
                         }
-                        SendAllClient("Hello.<EOF>");
                     }
+                    SendAllClient("Hello.<EOF>");
                     count++;
                 }
                 foreach(int i in ids)
@@ -189,7 +193,6 @@ namespace FrpPulginServer
         }
         private void ProcessMessageFromServer()
         {
-            try{
             int RequestID = 100;
             while(true)
             {
@@ -301,8 +304,6 @@ namespace FrpPulginServer
                         RequestID=100;
                     }
                 }
-            }}catch(Exception e){
-                Logger.Debug("ProcessMessageFromServer Error: "+e.Message+"\t"+e.StackTrace);
             }
         }
         private void SendAllClient(string message)
@@ -344,6 +345,8 @@ namespace FrpPulginServer
                         Logger.Info("Client remove:\tIP:"+((IPEndPoint)i.tcpclient.Client.RemoteEndPoint).Address.ToString());
                         i.sslStream.Close();
                         i.tcpclient.Close();
+                        i.sslStream.Dispose();
+                        i.tcpclient.Dispose();
                         lock(ClientsConnsLock)
                         {
                             try{
@@ -393,6 +396,7 @@ namespace FrpPulginServer
                                 Event.Release(1);
                                 continue;
                             }
+                            if(request=="") continue;
                             Logger.Debug("Damaged client message:\t"+request);
                         }
                     }catch(Exception e)
@@ -444,6 +448,9 @@ namespace FrpPulginServer
                 Logger.Debug("Authenticate failed,IP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString()+"\t"+e.Message);
                 ssl.Close();
                 client.Close();
+                ssl.Dispose();
+                client.Dispose();
+                return;
             }
             try
             {
@@ -464,12 +471,16 @@ namespace FrpPulginServer
                     ssl.Write(System.Text.Encoding.UTF8.GetBytes("Authenticate:Reject.<EOF>"));
                     ssl.Close();
                     client.Close();
+                    ssl.Dispose();
+                    client.Dispose();
                 }
             }catch(Exception e)
             {
                 Logger.Debug("Authenticate,Password failed,\t"+e.Message);
                 ssl.Close();
                 client.Close();
+                ssl.Dispose();
+                client.Dispose();
             }
         }
         private string ReadSslMessage(SslStream sslStream)
