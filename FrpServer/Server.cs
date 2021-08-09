@@ -222,7 +222,7 @@ namespace FrpPulginServer
                 Socket.Select(conns,null,null,-1);
                 if(conns.Count==1 && conns[0]==IndicationRequest)
                 {
-                    IndicationRequest.Receive(new byte[1024]);
+                    IndicationRequest.Receive(new byte[32]);
                     continue;
                 }
                 byte[] buffer= new byte[1024];
@@ -230,7 +230,7 @@ namespace FrpPulginServer
                 {
                     if(i==IndicationRequest)
                     {
-                        IndicationRequest.Receive(new byte[1024]);
+                        IndicationRequest.Receive(new byte[32]);
                         continue;
                     }
                     int rc = 0;
@@ -365,13 +365,13 @@ namespace FrpPulginServer
                 Socket.Select(conns,null,null,-1);
                 if(conns.Count == 1 && conns[0]==IndicationClient)
                 {
-                    IndicationClient.Receive(new byte[1024]);
+                    IndicationClient.Receive(new byte[32]);
                     continue;
                 }
                 foreach(Socket i in conns)
                 {
                     if(i==IndicationClient){
-                        IndicationClient.Receive(new byte[1024]);
+                        IndicationClient.Receive(new byte[32]);
                         continue;
                     }
                     SslStream ssl = map[i].sslStream;
@@ -419,7 +419,7 @@ namespace FrpPulginServer
                 {
                     if(i == ClientListener.Server)
                     {
-                        Task.Run(()=>Authenticate(ClientListener.AcceptTcpClient()));
+                        Authenticate(ClientListener.AcceptTcpClient());
                     }
                     else
                     {
@@ -437,12 +437,12 @@ namespace FrpPulginServer
         private void Authenticate(TcpClient client)
         {
             Logger.Info("New client Login\tIP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
-            SslStream ssl=new SslStream(client.GetStream());
+            SslStream ssl=new SslStream(client.GetStream(),false);
             try
             {
                 ssl.AuthenticateAsServer(serverCertificate,false,SslProtocols.Tls,true);
-                ssl.ReadTimeout = 500;
-                ssl.WriteTimeout = 500;
+                ssl.ReadTimeout = 1000;
+                ssl.WriteTimeout = 1000;
             }catch(Exception e)
             {
                 Logger.Debug("Authenticate failed,IP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString()+"\t"+e.Message);
