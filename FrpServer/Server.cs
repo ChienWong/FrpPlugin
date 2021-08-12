@@ -437,12 +437,14 @@ namespace FrpPulginServer
         private void Authenticate(TcpClient client)
         {
             Logger.Info("New client Login\tIP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
+            client.ReceiveTimeout=1000;
+            client.SendTimeout=1000;
             SslStream ssl=new SslStream(client.GetStream(),false);
             try
             {
-                ssl.AuthenticateAsServer(serverCertificate,false,SslProtocols.Tls,true);
                 ssl.ReadTimeout = 1000;
                 ssl.WriteTimeout = 1000;
+                ssl.AuthenticateAsServer(serverCertificate,false,SslProtocols.Tls,true);
             }catch(Exception e)
             {
                 Logger.Debug("Authenticate failed,IP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString()+"\t"+e.Message);
