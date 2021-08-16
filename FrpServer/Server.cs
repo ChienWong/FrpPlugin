@@ -457,7 +457,7 @@ namespace FrpPulginServer
             try
             {
                 string message = ReadSslMessage(ssl);
-                while(message.Equals(""))message = ReadSslMessage(ssl);
+                if(message.Equals(""))message = ReadSslMessage(ssl);
                 if(ComparePassword(ClientPassword,message.Replace(".<EOF>","")))
                 {
                     Logger.Info("New client\tIP:"+((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
